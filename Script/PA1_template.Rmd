@@ -1,0 +1,198 @@
+---
+title: "Reproducible Research Project 1"
+author: "Kintak Raymond Yu"
+date: "26/08/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, results = "hide", message = FALSE, warning = FALSE)
+```
+
+## Overview 
+
+This document summaries the exploratory data analysis of data collected from a personal activity monitoring device. 
+The device records the number of steps taken in 5 minute intervals each day for an anonymous individual during October and November, 2012.
+
+## Loading and preprocessing the data
+```{r, echo = TRUE, results = "show"}
+# Read in the data
+library(tidyverse)
+df <- read_csv("../Data/activity.csv", col_names = TRUE)
+summary(df)
+str(df)
+```
+
+
+## Number of steps taken each day
+First, Let's find out how many steps are taken each day?
+
+```{r, echo = TRUE, results = "show"}
+# How many steps are taken each day? 
+library(tidyverse)
+dd <- df %>% group_by(date) %>% summarise(counts= sum(steps))
+
+library(ggplot2)
+Pdf <- ggplot(data = dd, aes(x = date, y = counts)) +
+  geom_col() +
+  labs(title="Number of steps taken each day", x = "Date", y="No. of steps")
+Pdf
+
+```
+
+The number of steps looks rather even across the time frame. What is the mean and median of the total number of steps taken per day?
+
+It was mentioned that there is __NA__ in the data. Let's see how they are like first.
+
+```{r, echo=TRUE, results="show"}
+library(tidyverse)
+# Check NA
+dfNA <- df %>% filter(is.na(steps)) %>% group_by(date) %>% summarise(`counts of NA` = n())
+
+# list the counts
+dfNA$`counts of NA`
+
+# graph the distribution over the days
+library(ggplot2)
+PNA <- ggplot(data = dfNA, aes(x = date, y = `counts of NA`)) +
+  geom_col()
+PNA
+
+# simple counts
+nNADay <- dfNA %>% summarise(n=n())
+nNATot <- sum(dfNA$`counts of NA`)
+```
+
+In the data set, there are `r nNATot` __NA__ records, evenly spread across `r nNADay` days. 
+
+Since, 12 $\times$ 24 = `r 12*24`, so whenever there are __NA__ records in day, the data for that whole day will be missing.
+
+Let's compute the mean in 2 ways: 
+
+1) average the total number of steps over all the days,
+2) average over only those days that does not have __NA__.
+
+On the other hand, since the __NA__ results will not alter the median.
+No such consideration is made.
+
+```{r, echo=TRUE, results="show"}
+nDay <- dd %>% summarise(n())
+
+# mean, counting all the days
+nStepsMeanAllDays   <- dd %>% summarise(sum(counts, na.rm=TRUE))/nDay
+nStepsMeanAllDays
+
+# mean, counting only the no NA days
+nStepsMeanNoNADays <- dd %>% summarise(mean(counts, na.rm=TRUE))
+nStepsMeanNoNADays
+
+# median
+nStepsMedianNoNADays <- dd %>% summarise(median(counts, na.rm=TRUE))
+nStepsMedianNoNADays
+```
+
+Naturally, the mean values counting all the days is smaller than that only counting the no __NA__ days are different.
+
+The mean (ignoring the days with __NA__) and the median are actually very close.
+
+## Average daily activity pattern
+
+Here, the average daily activity pattern is examined.
+```{r, echo=TRUE}
+# prep the data to get the daily average of steps
+dfAvg <- df %>% group_by(interval) %>% summarise(mean = mean(steps, na.rm=TRUE))
+library(ggplot2)
+PAvg <- ggplot(data = dfAvg, aes(interval, mean)) +
+  geom_line() + 
+  labs(title="Average number of steps during each day", x = "Time interval in a day", y="Avg. no. of steps")
+PAvg
+# get the index of the max interval
+im <- which.max(dfAvg$mean)
+
+```
+
+The internal that has the max value is the `r im`$^{th}$ internal, which corresponds to the interval value of `r dfAvg$interval[im]`.
+
+```{r, echo=TRUE, results='show'}
+# check the pattern of the interval to see what it means ...
+head(df$interval,36)
+```
+Looking at the pattern in the time interval, `r dfAvg$interval[im]` should mean 8:35 am. 
+
+## About missing values
+Recall from above that there are `r nNATot` __NA__ records, evenly spread across `r nNADay` days.
+In particular, when there is __NA__ in a day, the data for that whole day will be missing. 
+
+Let's impute the missing values with the average number of steps for that 5 minute interval obtained above.
+In other words, the day with __NA__ is set to be the same as the averaged day pattern.
+
+```{r, echo=TRUE}
+# create the new dff with the NA interval filled with the mean of that interval
+dff <- df
+dff <- dff %>% mutate (steps = ifelse(date %in% dfNA$date, dfAvg$mean, steps))
+```
+
+```{r, echo=TRUE}
+# prep the data to get the total number of daily steps again
+dfTot <- dff %>% group_by(date) %>% summarise(total = sum(steps))
+library(ggplot2)
+Pdff <- ggplot(data = dfTot, aes(date, total)) +
+  geom_col() + 
+  labs(title="Total number of steps in each day with NA's imputed", x = "Date", y="Total no. of steps")
+Pdff
+```
+
+```{r, echo=TRUE}
+# compare with the originally again
+Pdf
+```
+
+```{r, echo=TRUE, results='show'}
+# get the new mean and median
+ddnew <- dff %>% group_by(date) %>% summarise(counts= sum(steps)) 
+nStepsMeanNew <- ddnew %>% summarise(mean(counts))
+nStepsMeanNew
+nStepsMedianNew <- ddnew %>% summarise(median(counts))
+nStepsMedianNew
+```
+Comparing this with the previous results, the new Mean is close to the mean when __NA__ in the data are ignored using __na.rm__. 
+But it is very much different from the one computed by dividing the total steps over the total number of days (which is only `r round(nStepsMeanAllDays, 2)`).
+
+As for the median, it is very slightly increased by the data imputing.
+
+## Activity patterns between weekdays and weekends
+```{r, echo=TRUE, results='show'}
+# add a two-level factor for weekdays and weekend
+library(tidyverse)
+df$days <- as.factor(weekdays(df$date))
+df$day2 <- fct_collapse(df$days, 
+                        weekday = c('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'),
+                        weekend = c('Saturday', 'Sunday'))
+
+# get the average step per intervals for weekday and weekend
+dfAvgWeekday <- df %>% filter(day2=='weekday') %>% 
+  group_by(interval) %>% 
+  summarise(mean = mean(steps, na.rm=TRUE))
+
+dfAvgWeekend <- df %>% filter(day2=='weekend') %>% 
+  group_by(interval) %>% 
+  summarise(mean = mean(steps, na.rm=TRUE))
+
+# prepare plots to compare the pattern
+library(ggplot2)
+library(ggpubr)
+pweekday <- ggplot(data = dfAvgWeekday, aes(interval, mean)) +
+  geom_line() + 
+  labs(title="Average number of steps during weekday", x = "Time interval in a day", y="Avg. no. of steps")
+
+
+pweekend <- ggplot(data = dfAvgWeekend, aes(interval, mean)) +
+  geom_line() + 
+  labs(title="Average number of steps during weekend", x = "Time interval in a day", y="Avg. no. of steps")
+
+figure <- ggarrange(pweekday, pweekend, ncol = 1, nrow = 2)
+figure
+
+```
+
+It is clear that during the weekend, the subject is more active during the day.
